@@ -1,0 +1,46 @@
+# OS & Editor files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Video Files (Source and Outputs)
+*.mp4
+/pics/
+/fill-sequential/output.mp4
+
+# Python / IDE cache files
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Spark & Execution logs / outputs
+*.log
+chunking_output/
+fill-sequential/full-v5-output_*/
+fill-sequential/frames_full-v5_*/
+fill-sequential/processed_frames_full-v5_*/
+fill-sequential/checkpoints_full-v5_*/
+
+# Run checkpoints & stats (keep code, exclude run metrics)
+checkpoint_*.json
+*metrics*.json
+*stats*.txt
+single_frame_process.log
+chunker-sequential/chunking.log
+
+# Temporary test outputs
+logo-replacer/output_frame.png
+logo-replacer/single_frame_metrics.json
+logo-replacer/single_frame_process.log
+
+# SECURITY WARNING: Personal/sensitive files excluded from public repository
+docs/Conference/Conference Payment Invoice.pdf
+docs/Conference/Conference Regsitration Form.pdf
+docs/Conference/Copyright Form.pdf
+docs/Conference/Reimbursement Request Letter.pdf
+docs/Conference/ID-Card.pdf
+docs/Conference/SWIFT Message.pdf
+docs/Conference/Sarthak Certificate.png
+docs/Conference/Pradyun Certificate.pdf

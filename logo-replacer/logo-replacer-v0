@@ -1,0 +1,346 @@
+import cv2
+import numpy as np
+import time
+import psutil
+from datetime import datetime
+import json
+from pathlib import Path
+import logging
+from tqdm import tqdm
+
+class SingleFrameLogoReplacer:
+    def __init__(self, input_frame, old_logo, new_logo, output_dir):
+        """Initialize the single frame logo replacer with paths."""
+        self.input_frame = Path(input_frame)
+        self.old_logo = Path(old_logo)
+        self.new_logo = Path(new_logo)
+        self.output_dir = Path(output_dir)
+        
+        # Initialize metrics
+        self.metrics = {
+            'start_time': datetime.now().isoformat(),
+            'frame_info': {},
+            'logo_detection': {},
+            'logo_replacement': {},
+            'system_metrics': {
+                'initial_memory': psutil.Process().memory_info().rss / 1024 / 1024,  # MB
+                'initial_cpu': psutil.cpu_percent()
+            }
+        }
+        
+        # Configure logging
+        logging.basicConfig(
+            filename=self.output_dir / 'single_frame_process.log',
+            level=logging.INFO,
+            format='%(asctime)s - %(levelname)s - %(message)s'
+        )
+        self.logger = logging
+
+    def analyze_images(self):
+        """Analyze input frame and logos."""
+        print("\nPHASE 1: IMAGE ANALYSIS")
+        print("="*50)
+        
+        with tqdm(total=3, desc="Analyzing images") as pbar:
+            # Analyze input frame
+            frame = cv2.imread(str(self.input_frame))
+            self.metrics['frame_info']['input_frame'] = {
+                'dimensions': frame.shape,
+                'size_kb': self.input_frame.stat().st_size / 1024,
+                'channels': frame.shape[2]
+            }
+            pbar.update(1)
+            
+            # Analyze old logo
+            old_logo = cv2.imread(str(self.old_logo))
+            self.metrics['frame_info']['old_logo'] = {
+                'dimensions': old_logo.shape,
+                'size_kb': self.old_logo.stat().st_size / 1024
+            }
+            pbar.update(1)
+            
+            # Analyze new logo
+            new_logo = cv2.imread(str(self.new_logo))
+            self.metrics['frame_info']['new_logo'] = {
+                'dimensions': new_logo.shape,
+                'size_kb': self.new_logo.stat().st_size / 1024
+            }
+            pbar.update(1)
+        
+        print("\nImage Analysis Results:")
+        print(f"├── Input Frame: {frame.shape[1]}x{frame.shape[0]} pixels")
+        print(f"├── Old Logo: {old_logo.shape[1]}x{old_logo.shape[0]} pixels")
+        print(f"└── New Logo: {new_logo.shape[1]}x{new_logo.shape[0]} pixels\n")
+        
+        return frame, old_logo, new_logo
+
+    def detect_logo(self, frame, template):
+        """Detect logo in frame using multi-scale template matching."""
+        print("\nPHASE 2: LOGO DETECTION")
+        print("="*50)
+        
+        detection_start = time.time()
+        best_confidence = 0
+        best_loc = None
+        best_size = None
+        
+        # Modify the scale range to try larger sizes
+        scales = np.linspace(0.8, 2.0, 25)  # Try 25 different scales from 0.8x to 2.0x
+        
+        with tqdm(total=len(scales), desc="Detecting logo at different scales") as pbar:
+            for scale in scales:
+                # Resize template according to scale
+                width = int(template.shape[1] * scale)
+                height = int(template.shape[0] * scale)
+                resized_template = cv2.resize(template, (width, height))
+                
+                # Template matching
+                result = cv2.matchTemplate(frame, resized_template, cv2.TM_CCOEFF_NORMED)
+                min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+                
+                # Check if this scale gives better results
+                if max_val > best_confidence:
+                    best_confidence = max_val
+                    best_loc = max_loc
+                    best_size = (height, width)
+                
+                pbar.update(1)
+                pbar.set_postfix({'confidence': f"{best_confidence:.3f}"})
+        
+        detection_time = time.time() - detection_start
+        
+        # Record metrics
+        self.metrics['logo_detection'] = {
+            'confidence': float(best_confidence),
+            'location': best_loc,
+            'detection_time': detection_time,
+            'memory_usage': psutil.Process().memory_info().rss / 1024 / 1024,
+            'cpu_usage': psutil.cpu_percent(),
+            'best_scale': f"{best_size[1]/template.shape[1]:.2f}x"
+        }
+        
+        print("\nLogo Detection Results:")
+        print(f"├── Best Confidence: {best_confidence:.4f}")
+        print(f"├── Location: (x={best_loc[0]}, y={best_loc[1]})")
+        print(f"├── Best Size: {best_size[1]}x{best_size[0]} pixels")
+        print(f"├── Scale: {self.metrics['logo_detection']['best_scale']}")
+        print(f"├── Detection Time: {detection_time*1000:.2f}ms")
+        print(f"└── Memory Usage: {self.metrics['logo_detection']['memory_usage']:.1f}MB\n")
+        
+        # Adjust confidence threshold based on your needs
+        # You might need to experiment with this value
+        confidence_threshold = 0.3
+        return best_confidence > confidence_threshold, best_loc, best_size
+
+    def replace_logo(self, frame, new_logo, location, size):
+        """Replace detected logo with new logo."""
+        print("\nPHASE 3: LOGO REPLACEMENT")
+        print("="*50)
+        
+        replacement_start = time.time()
+        
+        with tqdm(total=4, desc="Replacing logo") as pbar:
+            # Resize new logo
+            h, w = size
+            new_logo = cv2.resize(new_logo, (w, h))
+            pbar.update(1)
+            
+            # Create mask for blending
+            if new_logo.shape[2] == 4:
+                alpha = new_logo[:, :, 3] / 255.0
+                alpha = cv2.merge([alpha, alpha, alpha])
+                new_logo = new_logo[:, :, :3]
+            else:
+                alpha = np.ones((h, w, 3))
+            pbar.update(1)
+            
+            # Get region of interest
+            x, y = location
+            
+            # Add boundary checks
+            frame_h, frame_w = frame.shape[:2]
+            if x + w > frame_w:
+                w = frame_w - x
+            if y + h > frame_h:
+                h = frame_h - y
+                
+            roi = frame[y:y+h, x:x+w]
+            pbar.update(1)
+            
+            # Resize components if needed
+            if roi.shape != new_logo[:h, :w].shape:
+                new_logo = cv2.resize(new_logo, (w, h))
+                alpha = cv2.resize(alpha, (w, h))
+            
+            # Blend logos
+            blended = (1 - alpha[:h, :w]) * roi + alpha[:h, :w] * new_logo[:h, :w]
+            frame[y:y+h, x:x+w] = blended
+            pbar.update(1)
+        
+        replacement_time = time.time() - replacement_start
+        
+        # Record metrics
+        self.metrics['logo_replacement'] = {
+            'replacement_time': replacement_time,
+            'memory_usage': psutil.Process().memory_info().rss / 1024 / 1024,
+            'cpu_usage': psutil.cpu_percent(),
+            'region_size': f"{w}x{h}"
+        }
+        
+        print("\nLogo Replacement Results:")
+        print(f"├── Region Size: {w}x{h} pixels")
+        print(f"├── Replacement Time: {replacement_time*1000:.2f}ms")
+        print(f"└── Memory Usage: {self.metrics['logo_replacement']['memory_usage']:.1f}MB\n")
+        
+        return frame
+
+    def process_frame(self):
+        """Main processing pipeline."""
+        print("\n" + "="*80)
+        print("SINGLE FRAME LOGO REPLACEMENT - DETAILED MONITORING")
+        print("="*80)
+        
+        process = psutil.Process()
+        start_time = time.time()
+        
+        try:
+            # Analyze images
+            frame, old_logo, new_logo = self.analyze_images()
+            
+            # Detect logo
+            detected, location, size = self.detect_logo(frame, old_logo)
+            
+            if not detected:
+                raise Exception("Logo not detected with sufficient confidence")
+            
+            # Replace logo
+            processed_frame = self.replace_logo(frame, new_logo, location, size)
+            
+            # Save output
+            output_path = self.output_dir / 'output_frame.png'
+            cv2.imwrite(str(output_path), processed_frame)
+            
+            # Final metrics
+            total_time = time.time() - start_time
+            self.metrics['overall'] = {
+                'total_time': total_time,
+                'peak_memory': process.memory_info().rss / 1024 / 1024,
+                'output_size_kb': output_path.stat().st_size / 1024
+            }
+            
+            print("\nFINAL PROCESSING SUMMARY")
+            print("="*50)
+            print(f"├── Total Processing Time: {total_time*1000:.2f}ms")
+            print(f"├── Peak Memory Usage: {self.metrics['overall']['peak_memory']:.1f}MB")
+            print(f"├── Output File Size: {self.metrics['overall']['output_size_kb']:.1f}KB")
+            print(f"└── Output Saved: {output_path}\n")
+            
+            # Save metrics
+            with open(self.output_dir / 'single_frame_metrics.json', 'w') as f:
+                json.dump(self.metrics, f, indent=4)
+            
+            # Create documentation
+            self.create_documentation()
+            
+            return True
+            
+        except Exception as e:
+            print(f"\n❌ Error: {str(e)}")
+            self.logger.error(f"Processing failed: {str(e)}")
+            return False
+
+    def create_documentation(self):
+        """Create detailed documentation of the process and results."""
+        doc_content = f"""# Logo Detection and Replacement System Documentation
+Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## System Overview
+This system implements a sophisticated logo detection and replacement pipeline using computer vision techniques.
+
+## Technical Specifications
+
+### 1. Input/Output Information
+- Input Frame: {self.metrics['frame_info']['input_frame']['dimensions'][1]}x{self.metrics['frame_info']['input_frame']['dimensions'][0]} pixels
+- Old Logo Template: {self.metrics['frame_info']['old_logo']['dimensions'][1]}x{self.metrics['frame_info']['old_logo']['dimensions'][0]} pixels
+- New Logo: {self.metrics['frame_info']['new_logo']['dimensions'][1]}x{self.metrics['frame_info']['new_logo']['dimensions'][0]} pixels
+
+### 2. Detection Results
+- Confidence Level: {self.metrics['logo_detection']['confidence']:.4f}
+- Best Scale Found: {self.metrics['logo_detection']['best_scale']}
+- Detection Location: {self.metrics['logo_detection']['location']}
+- Detection Time: {self.metrics['logo_detection']['detection_time']*1000:.2f}ms
+
+### 3. Replacement Details
+- Region Size: {self.metrics['logo_replacement']['region_size']}
+- Replacement Time: {self.metrics['logo_replacement']['replacement_time']*1000:.2f}ms
+
+## Performance Metrics
+
+### Processing Times
+- Total Execution Time: {self.metrics['overall']['total_time']*1000:.2f}ms
+- Logo Detection: {self.metrics['logo_detection']['detection_time']*1000:.2f}ms
+- Logo Replacement: {self.metrics['logo_replacement']['replacement_time']*1000:.2f}ms
+
+### Resource Usage
+- Initial Memory: {self.metrics['system_metrics']['initial_memory']:.1f}MB
+- Peak Memory: {self.metrics['overall']['peak_memory']:.1f}MB
+- CPU Usage: {self.metrics['logo_detection']['cpu_usage']:.1f}%
+
+### File Metrics
+- Input Frame Size: {self.metrics['frame_info']['input_frame']['size_kb']:.1f}KB
+- Output Frame Size: {self.metrics['overall']['output_size_kb']:.1f}KB
+- Size Overhead: {((self.metrics['overall']['output_size_kb'] - self.metrics['frame_info']['input_frame']['size_kb']) / self.metrics['frame_info']['input_frame']['size_kb'] * 100):.1f}%
+
+## Technical Implementation Details
+
+### Detection Algorithm
+- Method: Template Matching with Multi-Scale Detection
+- Scale Range: 0.8x to 2.0x
+- Scale Steps: 25
+- Matching Algorithm: cv2.TM_CCOEFF_NORMED
+- Confidence Threshold: 0.3
+
+### Replacement Algorithm
+- Method: Alpha Blending
+- Transparency Handling: Yes
+- Boundary Checking: Implemented
+- Size Adjustment: Dynamic
+
+### Error Handling
+- Confidence Validation
+- Boundary Checks
+- Size Mismatch Handling
+- File I/O Validation
+
+## Process Summary
+- Start Time: {self.metrics['start_time']}
+- Process ID: {psutil.Process().pid}
+- Status: {'Successful' if 'overall' in self.metrics else 'Failed'}
+
+## File Locations
+- Input Frame: {self.input_frame}
+- Old Logo Template: {self.old_logo}
+- New Logo: {self.new_logo}
+- Output Frame: {self.output_dir / 'output_frame.png'}
+- Metrics JSON: {self.output_dir / 'single_frame_metrics.json'}
+- Process Log: {self.output_dir / 'single_frame_process.log'}
+"""
+
+        # Write documentation to file
+        doc_path = self.output_dir / 'DOCUMENTATION.txt'
+        with open(doc_path, 'w') as f:
+            f.write(doc_content)
+        
+        print(f"\nDocumentation saved to: {doc_path}")
+
+def main():
+    processor = SingleFrameLogoReplacer(
+        input_frame=r"C:\Users\prady\Documents\Capstone\logo-replacer\frame_000001.png",
+        old_logo=r"C:\Users\prady\Documents\Capstone\logo-replacer\old-pes-logo.png",
+        new_logo=r"C:\Users\prady\Documents\Capstone\logo-replacer\new-pes-logo.png",
+        output_dir=r"C:\Users\prady\Documents\Capstone\logo-replacer"
+    )
+    processor.process_frame()
+
+if __name__ == "__main__":
+    main()

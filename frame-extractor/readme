@@ -1,0 +1,20 @@
+have a look at this full-v2
+
+write a new prgroam called frame-extractor-v0
+
+where it does everything same as full-v2 but only until the frame extraction and saving in the frames in a directory
+
+follow these steps 
+1. given input video 
+2. analyse the video 
+3.  remove the audio
+4. extract frames and store it in a folder called frame-extractor-v0-frames
+
+give me stats for everything 
+ask me for directroy locations
+input video - "C:\Users\prady\Documents\Capstone\frame-extractor\UE18CS315_2020-09-11_CLASS25_SJ.mp4"
+
+save audio as <input video name>_audio-extract
+
+save the extracted frames in a folder called frame-extractor-v0-output on the same directory 
+

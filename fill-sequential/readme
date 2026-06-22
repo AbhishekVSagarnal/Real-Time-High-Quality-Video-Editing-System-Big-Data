@@ -1,0 +1,25 @@
+This folder has teh code and details of video splitting, logo detection, replacement and compilation done in a sequential manner
+
+this is executed using only part of the CPU processing power 
+
+CPU
+
+	AMD Ryzen 7 5700G with Radeon Graphics 
+
+	Base speed:	3.80 GHz
+	Sockets:	1
+	Cores:	8
+	Logical processors:	16
+	Virtualization:	Disabled
+	Hyper-V support:	Yes
+	L1 cache:	512 KB
+	L2 cache:	4.0 MB
+	L3 cache:	16.0 MB
+
+	Utilization	29%
+	Speed	0.00 GHz
+	Up time	0:14:34:14
+	Processes	313
+	Threads	15587
+	Handles	198168
+
