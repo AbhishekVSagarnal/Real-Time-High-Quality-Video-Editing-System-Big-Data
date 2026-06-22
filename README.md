@@ -34,7 +34,7 @@ flowchart TD
     A[Input Video] --> B[FFmpeg Chunking]
     B --> C[Upload Chunks to HDFS]
     C --> D[Spark Context / RDD Distribution]
-    subgraph Spark Worker Nodes (Parallel Execution)
+    subgraph SWN ["Spark Worker Nodes (Parallel Execution)"]
         D --> E1[Worker 1: Download Chunk]
         D --> E2[Worker 2: Download Chunk]
         E1 --> F1[FFmpeg CUDA Frame Extraction]
